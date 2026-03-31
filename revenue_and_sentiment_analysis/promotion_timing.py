@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # ── Load data ────────────────────────────────────────────────────────────────
-df = pd.read_csv("synthetic_pos_reviews.csv", parse_dates=["transaction_date", "review_date"])
+df = pd.read_csv("../synthetic_pos_reviews.csv", parse_dates=["transaction_date", "review_date"])
 
 DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 CAFES = df["restaurant_name"].unique()

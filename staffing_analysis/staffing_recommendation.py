@@ -12,7 +12,7 @@ import seaborn as sns
 from scipy import stats
 
 # ── Load data ────────────────────────────────────────────────────────────────
-df = pd.read_csv("synthetic_pos_reviews.csv", parse_dates=["transaction_date"])
+df = pd.read_csv("../synthetic_pos_reviews.csv", parse_dates=["transaction_date"])
 
 DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 CAFES = sorted(df["restaurant_name"].unique())

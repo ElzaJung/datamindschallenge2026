@@ -17,15 +17,17 @@ Quadrants:
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # ── Load raw reviews ─────────────────────────────────────────────────────────
 REVIEW_FILES = {
-    "Fahrenheit Coffee": "datasets-xlsx/reviews_Fahrenheit_Coffee_1000_reviews.xlsx",
-    "Dineen Coffee Co.": "datasets-xlsx/reviews_Dineen_Coffee_Co_1000_reviews.xlsx",
-    "Cafe Landwer":      "datasets-xlsx/reviews_Cafe_Landwer_1000_reviews.xlsx",
+    "Fahrenheit Coffee": "output/reviews_Fahrenheit_Coffee_1000_reviews.xlsx",
+    "Dineen Coffee Co.": "output/reviews_Dineen_Coffee_Co_1000_reviews.xlsx",
+    "Cafe Landwer":      "output/reviews_Cafe_Landwer_1000_reviews.xlsx",
 }
 
 dfs = []
@@ -114,23 +116,14 @@ for item, meta in MENU_ITEMS.items():
 
 menu_df = pd.DataFrame(results).sort_values("mentions", ascending=False).reset_index(drop=True)
 
-# ── Print summary table ──────────────────────────────────────────────────────
-print("=" * 72)
-print("MENU ITEM ANALYSIS — MENTION FREQUENCY × SENTIMENT × PROFIT")
-print("=" * 72)
-print(f"{'Item':<16} {'Cat':<10} {'Mentions':>8} {'Sentiment':>10} {'Profit':>10}")
-print("-" * 56)
-for _, row in menu_df.iterrows():
-    print(f"{row['item']:<16} {row['category']:<10} {row['mentions']:>8} "
-          f"{row['avg_sentiment']:>10.3f} {row['profit_label']:>10}")
+# ── Per-café analysis + individual bubble charts ─────────────────────────────
+CAFES = ["Fahrenheit Coffee", "Dineen Coffee Co.", "Cafe Landwer"]
+CAT_COLORS = {"coffee": "#8B4513", "specialty": "#2E8B57", "food": "#DAA520"}
+MIN_MENTIONS = 2  # minimum mentions to include an item for a given café
 
-# ── Quadrant classification ──────────────────────────────────────────────────
-mention_median = menu_df["mentions"].median()
-sent_median = menu_df["avg_sentiment"].median()
-
-def classify(row):
-    high_mention = row["mentions"] >= mention_median
-    high_sent = row["avg_sentiment"] >= sent_median
+def classify(row, med_mentions, med_sentiment):
+    high_mention = row["mentions"] >= med_mentions
+    high_sent = row["avg_sentiment"] >= med_sentiment
     if high_mention and high_sent:
         return "FEATURE"
     elif not high_mention and high_sent:
@@ -140,115 +133,105 @@ def classify(row):
     else:
         return "RETIRE"
 
-menu_df["quadrant"] = menu_df.apply(classify, axis=1)
+fig, axes = plt.subplots(1, 3, figsize=(22, 8), sharey=True)
+fig.suptitle("Menu Feature / Retire Matrix — Per Café\nMention Frequency × Sentiment × Relative Profit",
+             fontsize=14, fontweight="bold", y=1.03)
 
-print(f"\nMedian mentions: {mention_median:.0f}  |  Median sentiment: {sent_median:.3f}")
-print()
-
-for quad in ["FEATURE", "HIDDEN GEM", "FIX", "RETIRE"]:
-    items = menu_df[menu_df["quadrant"] == quad]
-    if items.empty:
-        continue
-    print(f"  {quad}:")
-    for _, row in items.iterrows():
-        print(f"    {row['item']:<16} ({row['mentions']} mentions, "
-              f"sentiment {row['avg_sentiment']:.2f}, profit: {row['profit_label']})")
-    print()
-
-# ── Per-café breakdown ───────────────────────────────────────────────────────
-CAFES = ["Fahrenheit Coffee", "Dineen Coffee Co.", "Cafe Landwer"]
-
-for cafe in CAFES:
-    print(f"{'─' * 72}")
-    print(f"  {cafe}")
-    print(f"{'─' * 72}")
+for ax, cafe in zip(axes, CAFES):
+    # Build this café's item table
     cafe_items = []
     for _, row in menu_df.iterrows():
         cafe_data = row["per_cafe"].get(cafe)
-        if cafe_data and cafe_data["mentions"] >= 2:
+        if cafe_data and cafe_data["mentions"] >= MIN_MENTIONS:
             cafe_items.append({
                 "item": row["item"],
+                "category": row["category"],
                 "mentions": cafe_data["mentions"],
                 "avg_sentiment": round(cafe_data["avg_sentiment"], 3),
+                "profit_tier": row["profit_tier"],
                 "profit_label": row["profit_label"],
-                "quadrant": row["quadrant"],
             })
+
     cafe_df = pd.DataFrame(cafe_items).sort_values("mentions", ascending=False)
     if cafe_df.empty:
-        print("  (insufficient data)")
+        ax.set_title(f"{cafe}\n(insufficient data)")
         continue
+
+    # Café-specific medians for quadrant lines
+    med_mentions = cafe_df["mentions"].median()
+    med_sentiment = cafe_df["avg_sentiment"].median()
+    cafe_df["quadrant"] = cafe_df.apply(
+        classify, axis=1, med_mentions=med_mentions, med_sentiment=med_sentiment
+    )
+
+    # Print table
+    print(f"{'=' * 72}")
+    print(f"  {cafe}")
+    print(f"  Median mentions: {med_mentions:.0f}  |  Median sentiment: {med_sentiment:.3f}")
+    print(f"{'=' * 72}")
     print(f"  {'Item':<16} {'Mentions':>8} {'Sentiment':>10} {'Profit':>10} {'Action':>12}")
+    print(f"  {'-' * 58}")
     for _, r in cafe_df.iterrows():
         print(f"  {r['item']:<16} {r['mentions']:>8} {r['avg_sentiment']:>10.3f} "
               f"{r['profit_label']:>10} {r['quadrant']:>12}")
     print()
 
-# ── Bubble chart ─────────────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(14, 9))
+    for quad in ["FEATURE", "HIDDEN GEM", "FIX", "RETIRE"]:
+        items = cafe_df[cafe_df["quadrant"] == quad]
+        if items.empty:
+            continue
+        print(f"  {quad}:")
+        for _, r in items.iterrows():
+            print(f"    {r['item']:<16} ({r['mentions']} mentions, "
+                  f"sentiment {r['avg_sentiment']:.2f}, profit: {r['profit_label']})")
+    print()
 
-# Color by category
-CAT_COLORS = {"coffee": "#8B4513", "specialty": "#2E8B57", "food": "#DAA520"}
-colors = [CAT_COLORS[row["category"]] for _, row in menu_df.iterrows()]
+    # Plot bubble chart
+    colors = [CAT_COLORS[r["category"]] for _, r in cafe_df.iterrows()]
+    sizes = [r["profit_tier"] * 120 for _, r in cafe_df.iterrows()]
 
-# Size by profit tier (scaled for visibility)
-sizes = [row["profit_tier"] * 120 for _, row in menu_df.iterrows()]
-
-scatter = ax.scatter(
-    menu_df["mentions"],
-    menu_df["avg_sentiment"],
-    s=sizes,
-    c=colors,
-    alpha=0.7,
-    edgecolors="black",
-    linewidth=0.5,
-)
-
-# Label each point
-for _, row in menu_df.iterrows():
-    ax.annotate(
-        row["item"],
-        (row["mentions"], row["avg_sentiment"]),
-        textcoords="offset points",
-        xytext=(8, 4),
-        fontsize=8,
-        fontweight="bold",
+    ax.scatter(
+        cafe_df["mentions"], cafe_df["avg_sentiment"],
+        s=sizes, c=colors, alpha=0.7, edgecolors="black", linewidth=0.5,
     )
 
-# Quadrant lines
-ax.axvline(mention_median, color="gray", linestyle="--", alpha=0.5)
-ax.axhline(sent_median, color="gray", linestyle="--", alpha=0.5)
+    for _, r in cafe_df.iterrows():
+        ax.annotate(
+            r["item"], (r["mentions"], r["avg_sentiment"]),
+            textcoords="offset points", xytext=(6, 4), fontsize=7, fontweight="bold",
+        )
 
-# Quadrant labels
-x_min, x_max = ax.get_xlim()
-y_min, y_max = ax.get_ylim()
-pad = 0.02
-ax.text(x_max * 0.85, y_max - pad, "FEATURE", fontsize=11, fontweight="bold",
-        color="green", alpha=0.6, ha="center")
-ax.text(x_min + (mention_median - x_min) * 0.3, y_max - pad, "HIDDEN GEM", fontsize=11,
-        fontweight="bold", color="blue", alpha=0.6, ha="center")
-ax.text(x_max * 0.85, y_min + pad, "FIX", fontsize=11, fontweight="bold",
-        color="red", alpha=0.6, ha="center")
-ax.text(x_min + (mention_median - x_min) * 0.3, y_min + pad, "RETIRE", fontsize=11,
-        fontweight="bold", color="gray", alpha=0.6, ha="center")
+    ax.axvline(med_mentions, color="gray", linestyle="--", alpha=0.5)
+    ax.axhline(med_sentiment, color="gray", linestyle="--", alpha=0.5)
 
-ax.set_xlabel("Mention Frequency (# of reviews)", fontsize=12)
-ax.set_ylabel("Average Sentiment Score", fontsize=12)
-ax.set_title("Menu Feature / Retire Matrix\nMention Frequency × Sentiment × Relative Profit",
-             fontsize=14, fontweight="bold")
+    # Quadrant labels
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    pad = 0.015
+    ax.text(x_max * 0.82, y_max - pad, "FEATURE", fontsize=9, fontweight="bold",
+            color="green", alpha=0.6, ha="center")
+    ax.text(x_min + (med_mentions - x_min) * 0.35, y_max - pad, "HIDDEN GEM", fontsize=9,
+            fontweight="bold", color="blue", alpha=0.6, ha="center")
+    ax.text(x_max * 0.82, y_min + pad, "FIX", fontsize=9, fontweight="bold",
+            color="red", alpha=0.6, ha="center")
+    ax.text(x_min + (med_mentions - x_min) * 0.35, y_min + pad, "RETIRE", fontsize=9,
+            fontweight="bold", color="gray", alpha=0.6, ha="center")
 
-# Legend — categories
-cat_handles = [mpatches.Patch(color=c, label=l.title())
-               for l, c in CAT_COLORS.items()]
-# Legend — profit tier sizes
+    ax.set_title(cafe, fontsize=11, fontweight="bold")
+    ax.set_xlabel("Mention Frequency", fontsize=10)
+    if ax == axes[0]:
+        ax.set_ylabel("Average Sentiment Score", fontsize=10)
+
+# Shared legend on the last axis
+cat_handles = [mpatches.Patch(color=c, label=l.title()) for l, c in CAT_COLORS.items()]
 size_handles = [plt.scatter([], [], s=tier * 120, c="gray", alpha=0.5,
                             edgecolors="black", linewidth=0.5, label=label)
                 for tier, label in sorted(PROFIT_LABELS.items())]
-
-leg1 = ax.legend(handles=cat_handles, title="Category", loc="lower right",
-                 fontsize=9, title_fontsize=10)
-ax.add_artist(leg1)
-ax.legend(handles=size_handles, title="Relative Profit", loc="lower left",
-          fontsize=9, title_fontsize=10, labelspacing=1.2)
+leg1 = axes[2].legend(handles=cat_handles, title="Category", loc="lower right",
+                      fontsize=8, title_fontsize=9)
+axes[2].add_artist(leg1)
+axes[2].legend(handles=size_handles, title="Relative Profit", loc="lower left",
+               fontsize=8, title_fontsize=9, labelspacing=1.2)
 
 plt.tight_layout()
 plt.savefig("menu_matrix.png", dpi=150, bbox_inches="tight")

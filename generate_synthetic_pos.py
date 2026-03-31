@@ -12,9 +12,9 @@ rng = np.random.default_rng(42)
 
 # ── 1. Load raw review data ──────────────────────────────────────────────────
 REVIEW_FILES = {
-    "Fahrenheit Coffee":  "datasets-xlsx/reviews_Fahrenheit_Coffee_1000_reviews.xlsx",
-    "Dineen Coffee Co.":  "datasets-xlsx/reviews_Dineen_Coffee_Co_1000_reviews.xlsx",
-    "Cafe Landwer":       "datasets-xlsx/reviews_Cafe_Landwer_1000_reviews.xlsx",
+    "Fahrenheit Coffee":  "output/reviews_Fahrenheit_Coffee_1000_reviews.xlsx",
+    "Dineen Coffee Co.":  "output/reviews_Dineen_Coffee_Co_1000_reviews.xlsx",
+    "Cafe Landwer":       "output/reviews_Cafe_Landwer_1000_reviews.xlsx",
 }
 
 dfs = []
@@ -100,7 +100,7 @@ row_budget.iloc[0] += diff
 print("Row budget per café:", row_budget.to_dict())
 
 # ── 6. Products sheet ────────────────────────────────────────────────────────
-products = pd.read_excel("Coffee Shop Data.xlsx", sheet_name="Products")
+products = pd.read_excel("output/Coffee Shop Data.xlsx", sheet_name="Products")
 
 # Map short codes to full names
 COFFEE_TYPE_MAP = {"Ara": "Arabica", "Exc": "Excelsa", "Lib": "Liberica", "Rob": "Robusta"}
