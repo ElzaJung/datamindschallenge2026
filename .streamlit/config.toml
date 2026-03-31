@@ -1,0 +1,20 @@
+[theme]
+# Primary color for buttons, progress bars, etc.
+primaryColor = "#721f9fff"
+
+# Main background color
+backgroundColor = "#ffffff"
+
+# Sidebar and secondary areas
+secondaryBackgroundColor = "#f4c25fff"
+
+# Overall text color
+textColor = "#1a1f2c"
+
+# Font selection
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
