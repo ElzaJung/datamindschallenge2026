@@ -437,7 +437,6 @@ async def scrape_reviews(
                 rec = {
                     "review_id":       rid,
                     "restaurant_name": restaurant_name,
-                    "category":        getattr(args, "category", "Unknown"),
                     "rating":          rating,
                     "review_text":     review_text,
                     "review_date":     rev_date_str,
@@ -493,7 +492,6 @@ COLUMNS = [
     # (header, field_key, width)
     ("Review ID",       "review_id",       28),
     ("Restaurant Name", "restaurant_name", 28),
-    ("Category",        "category",        16),
     ("Rating",          "rating",          10),
     ("Review Text",     "review_text",     60),
     ("Review Date",     "review_date",     16),
@@ -605,8 +603,6 @@ async def main():
                         help='Number of reviews to fetch (e.g. 1000). Overrides --period if provided.')
     parser.add_argument("--output", "-o", default="./output",
                         help="Output directory (default: ./output)")
-    parser.add_argument("--category", "-cg", default="Cafe",
-                        help="Place category (e.g. Cafe, F&B, Bar)")
     parser.add_argument("--headless", action="store_true", default=False,
                         help="Run headless (default: visible browser)")
     parser.add_argument("--timeout", type=int, default=60000,
