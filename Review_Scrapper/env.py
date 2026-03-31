@@ -1,0 +1,1 @@
+URL = "https://www.google.com/maps/place/FIKA+Cafe/@43.6535775,-79.4030177,17z/data=!3m1!4b1!4m6!3m5!1s0x882b34c2515a4fb3:0x881bba7e1b6d98ea!8m2!3d43.6535775!4d-79.4004428!16s%2Fg%2F1z3tbtmw_!5m1!1e2?entry=ttu&g_ep=EgoyMDI2MDMyNC4wIKXMDSoASAFQAw%3D%3D"
