@@ -173,13 +173,19 @@ OUTPUT FORMAT (follow strictly):
 3. **[Specific cause from reviews]** (N reviews mention this)
    > "[exact quote from a review]" — [reviewer name], [date]
 
+## Recommended Actions
+1. **[Specific action]** — [Why this addresses a top cause, referencing the review evidence]
+2. **[Specific action]** — [Why this addresses a top cause, referencing the review evidence]
+3. **[Specific action]** — [Why this addresses a top cause, referencing the review evidence]
+Each action must directly address a Top Cause above. No generic advice like "improve service" or "train staff." State exactly what to change and why the reviews demand it.
+
 ## Evidence Strength
 [How many reviews with text support this diagnosis vs. total reviews in the period? Is this conclusive or anecdotal? State the numbers.]
 
 ## Blind Spots
 [What this data does NOT tell you. Be specific: missing data, time gaps, topics not covered by reviews.]
 
-Maximum 400 words."""
+Maximum 500 words."""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
