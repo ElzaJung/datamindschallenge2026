@@ -3,4 +3,5 @@ __pycache__/
 .DS_Store
 *.pyc
 .env
+.streamlit/secrets.toml
 .ipynb_checkpoints/

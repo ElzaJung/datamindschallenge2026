@@ -1,1 +1,2 @@
 - [Do not modify groupmate's notebook](feedback_no_modify_groupmate_notebook.md) — build new analysis in separate files, never edit the existing .ipynb
+- [Mentor pivot feedback](feedback_mentor_pivot.md) — stop commodity analytics, build rating-change diagnostics with Claude API, zero vagueness in LLM output

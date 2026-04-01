@@ -4,11 +4,26 @@ import plotly.express as px
 import plotly.graph_objects as graph_objects
 from plotly.subplots import make_subplots
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from datetime import datetime
 import re
 import matplotlib.pyplot as plt
 import subprocess
 import sys
+
+# Anthropic API for diagnostic feature
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
+ANTHROPIC_API_KEY = (
+    st.secrets.get("ANTHROPIC_API_KEY")
+    or os.environ.get("ANTHROPIC_API_KEY")
+    or os.environ.get("MAC_ANTHROPIC_API_KEY")
+)
 
 # Set page config
 st.set_page_config(page_title="Cafe Review Analysis Dashboard", layout="wide")
@@ -102,6 +117,117 @@ with st.spinner("Initializing Dashboard..."):
 if df.empty:
     st.error("Missing data. Please ensure the 'output/' directory contains the cafe review Excel files.")
     st.stop()
+
+# ------------------------------------------------------------------------------
+# Rating Change Detection & Diagnostic Functions
+# ------------------------------------------------------------------------------
+
+def detect_rating_changes(agg_trend, threshold=0.3):
+    """Detect significant month-over-month rating changes per café."""
+    changes = []
+    for cafe in agg_trend['Restaurant Name'].unique():
+        cafe_data = agg_trend[agg_trend['Restaurant Name'] == cafe].sort_values('Period')
+        if len(cafe_data) < 2:
+            continue
+        cafe_data = cafe_data.reset_index(drop=True)
+        for i in range(1, len(cafe_data)):
+            prev = cafe_data.iloc[i - 1]
+            curr = cafe_data.iloc[i]
+            change = curr['Rating_Filtered'] - prev['Rating_Filtered']
+            if abs(change) >= threshold:
+                changes.append({
+                    'Cafe': cafe,
+                    'Period': curr['Period'],
+                    'Prev Period': prev['Period'],
+                    'Previous Rating': round(prev['Rating_Filtered'], 2),
+                    'New Rating': round(curr['Rating_Filtered'], 2),
+                    'Change': round(change, 2),
+                    'Direction': 'DROP' if change < 0 else 'SPIKE',
+                    'Reviews': int(curr['Reviews']),
+                })
+    if not changes:
+        return pd.DataFrame()
+    return pd.DataFrame(changes).sort_values('Change', key=abs, ascending=False).reset_index(drop=True)
+
+
+DIAGNOSTIC_SYSTEM_PROMPT = """You are a cafe operations analyst reviewing Google reviews. You are blunt, specific, and never vague.
+
+RULES:
+1. Every claim MUST cite at least one specific review by quoting the exact text in quotation marks.
+2. Use exact numbers: "rating dropped from 4.41 to 2.00" not "ratings declined significantly."
+3. If fewer than 5 text reviews exist, state: "Insufficient review text for confident diagnosis. Only N reviews contain text."
+4. Never say "consider improving" or "there may be issues." State what the reviews explicitly say.
+5. Never speculate about causes not mentioned in the reviews.
+6. Do not start with any greeting, preamble, or "Great question." Get straight to the analysis.
+
+OUTPUT FORMAT (follow strictly):
+
+## What Changed
+[1 sentence with exact rating numbers and date range]
+
+## Top Causes
+1. **[Specific cause from reviews]** (N reviews mention this)
+   > "[exact quote from a review]" — [reviewer name], [date]
+2. **[Specific cause from reviews]** (N reviews mention this)
+   > "[exact quote from a review]" — [reviewer name], [date]
+3. **[Specific cause from reviews]** (N reviews mention this)
+   > "[exact quote from a review]" — [reviewer name], [date]
+
+## Evidence Strength
+[How many reviews with text support this diagnosis vs. total reviews in the period? Is this conclusive or anecdotal? State the numbers.]
+
+## Blind Spots
+[What this data does NOT tell you. Be specific: missing data, time gaps, topics not covered by reviews.]
+
+Maximum 400 words."""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_diagnostic(cafe_name, period_start_str, period_end_str, rating_before,
+                   rating_after, change_value, reviews_list, user_context=""):
+    """Call Claude API to diagnose a rating change using the actual reviews."""
+    if not ANTHROPIC_AVAILABLE or not ANTHROPIC_API_KEY:
+        return "Error: Anthropic SDK not available or API key not set."
+
+    text_reviews = [r for r in reviews_list if r['text'] and str(r['text']).strip() and str(r['text']).lower() != 'nan']
+    n_text = len(text_reviews)
+    n_total = len(reviews_list)
+
+    if n_text < 3:
+        return f"**Insufficient data.** Only {n_text} reviews with text found in this period (minimum 3 required). Try expanding the date range."
+
+    # Format reviews for the prompt
+    formatted = []
+    for r in text_reviews[:300]:  # safety cap
+        formatted.append(f"[{r['date']}] {r['rating']}★ — \"{r['text']}\" — {r['author']}")
+    reviews_block = "\n".join(formatted)
+
+    sparsity_note = ""
+    if n_text < 10:
+        sparsity_note = f"\nNOTE: Only {n_text} reviews with text. Flag low confidence in your Evidence Strength section."
+
+    context_section = ""
+    if user_context.strip():
+        context_section = f"\nADDITIONAL CONTEXT FROM CAFE OWNER:\n{user_context.strip()}"
+
+    user_message = f"""Analyze this rating change for {cafe_name}:
+
+PERIOD: {period_start_str} to {period_end_str}
+RATING CHANGE: {rating_before:.2f} → {rating_after:.2f} ({change_value:+.2f})
+TOTAL REVIEWS IN PERIOD: {n_total} ({n_text} with text)
+{sparsity_note}{context_section}
+
+REVIEWS:
+{reviews_block}"""
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=800,
+        system=DIAGNOSTIC_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return response.content[0].text
 
 # ------------------------------------------------------------------------------
 # Sidebar
@@ -227,6 +353,104 @@ with col_left:
     fig.update_yaxes(title_text="Avg Rating", secondary_y=False, range=[1, 5.2])
     fig.update_yaxes(title_text="Review Volume", secondary_y=True)
     st.plotly_chart(fig, width='stretch')
+
+    # ------------------------------------------------------------------
+    # Rating Change Diagnostic (below chart, same column)
+    # ------------------------------------------------------------------
+    threshold = 0.2 if time_res == "Yearly" else 0.3
+    changes_df = detect_rating_changes(agg_trend, threshold=threshold)
+
+    if not changes_df.empty:
+        st.subheader("Rating Change Detection")
+        st.caption("Significant rating changes detected in the data above. Select one to diagnose with AI.")
+
+        # Format the selectable options
+        change_options = []
+        for _, row in changes_df.iterrows():
+            direction_icon = "📉" if row['Direction'] == 'DROP' else "📈"
+            period_str = pd.Timestamp(row['Period']).strftime('%b %Y')
+            change_options.append(
+                f"{direction_icon} {row['Cafe']}: {row['Previous Rating']:.2f} → {row['New Rating']:.2f} "
+                f"({row['Change']:+.2f}) — {period_str} ({row['Reviews']} reviews)"
+            )
+
+        selected_change_idx = st.selectbox(
+            "Select a rating change to diagnose",
+            range(len(change_options)),
+            format_func=lambda i: change_options[i],
+        )
+
+        selected_change = changes_df.iloc[selected_change_idx]
+
+        user_context = st.text_area(
+            "Additional context for the AI (optional)",
+            placeholder="e.g., We changed our coffee supplier in August, or We had staff turnover in September...",
+            height=80,
+        )
+
+        # Check if diagnostic is possible
+        can_diagnose = ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY
+
+        if not can_diagnose:
+            st.warning("AI Diagnostic unavailable: set ANTHROPIC_API_KEY or MAC_ANTHROPIC_API_KEY environment variable and install the anthropic package.")
+
+        if st.button("Diagnose This Change", type="primary", disabled=not can_diagnose):
+            sel_cafe = selected_change['Cafe']
+            sel_period = pd.Timestamp(selected_change['Period'])
+            sel_prev_period = pd.Timestamp(selected_change['Prev Period'])
+
+            # Get all reviews in the period range for this café
+            period_reviews = topic_df[
+                (topic_df['Restaurant Name'] == sel_cafe) &
+                (topic_df['Review Date'] >= sel_prev_period) &
+                (topic_df['Review Date'] <= sel_period + pd.offsets.MonthEnd(0))
+            ].copy()
+
+            reviews_list = []
+            for _, rev in period_reviews.iterrows():
+                reviews_list.append({
+                    'date': rev['Review Date'].strftime('%Y-%m-%d') if pd.notna(rev['Review Date']) else 'Unknown',
+                    'rating': rev['Rating_Filtered'] if pd.notna(rev['Rating_Filtered']) else 'N/A',
+                    'text': str(rev.get('Review Text', '')) if pd.notna(rev.get('Review Text')) else '',
+                    'author': str(rev.get('Author Name', 'Anonymous')) if pd.notna(rev.get('Author Name')) else 'Anonymous',
+                })
+
+            n_text = len([r for r in reviews_list if r['text'].strip() and r['text'].lower() != 'nan'])
+
+            with st.spinner(f"Analyzing {len(reviews_list)} reviews ({n_text} with text)..."):
+                try:
+                    result = get_diagnostic(
+                        cafe_name=sel_cafe,
+                        period_start_str=sel_prev_period.strftime('%b %Y'),
+                        period_end_str=sel_period.strftime('%b %Y'),
+                        rating_before=selected_change['Previous Rating'],
+                        rating_after=selected_change['New Rating'],
+                        change_value=selected_change['Change'],
+                        reviews_list=reviews_list,
+                        user_context=user_context,
+                    )
+
+                    st.divider()
+                    direction_label = "Drop" if selected_change['Direction'] == 'DROP' else "Improvement"
+                    st.markdown(f"#### Diagnostic: {sel_cafe} — {direction_label}")
+                    st.caption(f"Based on {n_text} reviews with text ({len(reviews_list)} total) from {sel_prev_period.strftime('%b %Y')} to {sel_period.strftime('%b %Y')}")
+
+                    if n_text < 10:
+                        st.info(f"Low data density: only {n_text} reviews with text. Diagnostic confidence is limited.")
+
+                    st.markdown(result)
+
+                    with st.expander("View raw reviews sent to AI"):
+                        review_display = period_reviews[['Review Date', 'Rating_Filtered', 'Review Text', 'Author Name']].copy()
+                        review_display = review_display.dropna(subset=['Review Text'])
+                        review_display = review_display[review_display['Review Text'].str.strip().str.lower() != 'nan']
+                        st.dataframe(review_display, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"API call failed: {e}")
+
+    elif len(agg_trend) > 1:
+        st.caption("No significant rating changes detected in the selected period.")
 
 with col_right:
     st.header("In-depth Analysis")
